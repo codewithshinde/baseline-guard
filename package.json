@@ -1,6 +1,6 @@
 {
   "name": "baseline-guard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI to enforce Web Baseline compatibility in dev and CI.",
   "keywords": [
     "baseline",
@@ -34,7 +34,7 @@
     "browserslist": "^4.23.0",
     "fast-glob": "^3.3.2",
     "picocolors": "^1.0.0",
-    "web-features": "^0.16.0"
+    "web-features": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

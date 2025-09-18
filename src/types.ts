@@ -31,13 +31,31 @@ export type Finding = {
 };
 
 export type WebFeature = {
-  id: string;
-  name?: string;
-  status?: { baseline?: "high" | "low" | "no" };
-  compat?: { support?: Partial<Record<string, string | number>> };
-};
+    kind?: "feature" | "moved" | "split";
+    name?: string;
+    description?: string;
+    status?: {
+      baseline?: "high" | "low" | false;
+      /** Min supported versions by browser (strings like "17", "17.4") */
+      support?: Partial<Record<
+        | "chrome"
+        | "chrome_android"
+        | "edge"
+        | "firefox"
+        | "firefox_android"
+        | "safari"
+        | "safari_ios",
+        string
+      >>;
+    };
+    discouraged?: unknown;
+    group?: string[];      // optional
+    snapshot?: string[];   // optional
+    caniuse?: string[];    // optional
+    compat_features?: string[]; // optional
+  };
 
-export type WebFeaturesIndex = {
-  byId: Map<string, WebFeature>;
-  all: WebFeature[];
-};
+  export type WebFeaturesIndex = {
+    byId: Map<string, WebFeature>;
+    allIds: string[];
+  };
