@@ -1,0 +1,47 @@
+{
+  "name": "baseline-guard",
+  "version": "0.1.0",
+  "description": "CLI to enforce Web Baseline compatibility in dev and CI.",
+  "keywords": [
+    "baseline",
+    "web",
+    "compat",
+    "browserslist",
+    "ci",
+    "eslint"
+  ],
+  "license": "MIT",
+  "author": "codewithshinde@gmail.com",
+  "bin": {
+    "baseline-guard": "dist/cli.js"
+  },
+  "main": "dist/cli.js",
+  "types": "dist/cli.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup src/cli.ts --format=cjs --platform=node --sourcemap --out-dir dist",
+    "just-build" : "tsup",
+    "prepublishOnly": "npm run build && npm test --if-present"
+  },
+  "dependencies": {
+    "browserslist": "^4.23.0",
+    "fast-glob": "^3.3.2",
+    "picocolors": "^1.0.0",
+    "web-features": "^0.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
