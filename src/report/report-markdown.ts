@@ -1,9 +1,6 @@
 import type { Report } from "../types";
 import { escapePipes } from "../utils";
 
-export function buildJsonReport(data: Report): string {
-  return JSON.stringify(data, null, 2);
-}
 
 export function renderMarkdownReport(data: Report): string {
   const header =

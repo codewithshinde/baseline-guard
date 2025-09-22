@@ -62,11 +62,6 @@ function selectRules(): Rule[] {
   return selected;
 }
 
-function renderHtmlReport(data: Report): string {
-  return getReportTemplate(data);
-}
-
-
 (async function main() {
   const started = Date.now();
   const cwd = process.cwd();
@@ -209,7 +204,7 @@ function renderHtmlReport(data: Report): string {
     let contents = "";
     if (ext === "json") contents = buildJsonReport(data);
     else if (ext === "md") contents = renderMarkdownReport(data);
-    else if (ext === "html") contents = renderHtmlReport(data);
+    else if (ext === "html") contents = getReportTemplate(data);
     else {
       console.error(pc.red(`Unknown report type: ${ext}`));
       process.exitCode = 2;
