@@ -30,6 +30,20 @@ export type Finding = {
   reason: string;
 };
 
+export type Report = {
+  generatedAt: string;
+  durationMs: number;
+  packageVersion?: string;
+  cwd: string;
+  targetSource: string;
+  targets: string[];
+  mode: Mode;
+  filesChecked: string[];
+  fileCount: number;
+  ruleCounts: Record<string, number>;
+  problems: Finding[];
+};
+
 export type WebFeature = {
     kind?: "feature" | "moved" | "split";
     name?: string;
