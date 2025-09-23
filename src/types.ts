@@ -4,7 +4,7 @@ export type Rule = {
   files: ("js" | "ts" | "tsx" | "css" | "html")[];
   regex: RegExp;
   message: string;
-  tags: ("popular" | "bug-prone" | "experimental" | "css" | "js" | "html")[];
+  tags: ("popular" | "bug-prone" | "experimental" | "css" | "js" | "html" | "risky")[];
   docs?: string;
 };
 
@@ -73,3 +73,6 @@ export type WebFeature = {
     byId: Map<string, WebFeature>;
     allIds: string[];
   };
+
+  export type BrowserKey = "chrome" | "edge" | "firefox" | "safari" | "ios_saf" | string;
+
