@@ -4,8 +4,7 @@ import path from "path";
 import fg from "fast-glob";
 import pc from "picocolors";
 
-import { loadWebFeatures } from "./data";
-import { RULES, PACKS } from "./rules";
+import { RULES, PACKS } from "./constants/rules";
 import { loadTargets } from "./targets";
 import { isFeatureSafeForTargets } from "./check";
 import type { Rule, Finding, Report, BrowserKey } from "./types";
@@ -14,7 +13,9 @@ import {
   getReportTemplate,
   renderMarkdownReport,
 } from "./report";
-import { ensureDirFor, timestampSlug } from "./utils";
+import { ensureDirFor, timestampSlug } from "./utils/common";
+import { getAllRules, loadWebFeatures } from "./utils";
+import { labelMap } from "./constants";
 
 const args = process.argv.slice(2);
 const arg = (k: string) =>
@@ -27,26 +28,13 @@ const pack = arg("--pack"); // default to "all" later if not provided
 const listRules = args.includes("--list-rules");
 const watch = args.includes("--watch");
 
-// Output format
 const format = (arg("--format") ?? "pretty") as "pretty" | "json";
-
-// Report flags
 const listChecked = args.includes("--list-checked");
 const reportKind = (arg("--report") ?? "").toLowerCase() as "" | "json" | "md" | "html";
 const outPathArg = arg("--out");
 const saveFlag = args.includes("--save");
 
-/* ============================
-   Targets table utilities
-============================ */
 
-const LABELS: Record<string, string> = {
-  chrome: "Chrome",
-  edge: "Edge",
-  firefox: "Firefox",
-  safari: "Safari",
-  ios_saf: "iOS Safari",
-};
 
 function parseRangeNumber(token: string): [number, number] {
   const t = token.replace("–", "-");
@@ -62,7 +50,6 @@ function formatNum(n: number): string {
 
 function summarizeTargets(resolved: string[]) {
   const groups = new Map<BrowserKey, { min: number; max: number; count: number }>();
-
   for (const entry of resolved) {
     const [name, verRaw = ""] = entry.split(" ");
     if (!name || !verRaw) continue;
@@ -73,18 +60,16 @@ function summarizeTargets(resolved: string[]) {
     g.count += 1;
     groups.set(name as BrowserKey, g);
   }
-
   const preferred: BrowserKey[] = ["chrome", "edge", "firefox", "safari", "ios_saf"];
   const others = [...groups.keys()].filter((k) => !preferred.includes(k)).sort();
   const ordered = [...preferred.filter((k) => groups.has(k)), ...others];
 
   const rows = ordered.map((key) => {
     const g = groups.get(key)!;
-    const label = LABELS[key] ?? key;
+    const label = labelMap[key] ?? key;
     const range = `${formatNum(g.min)}–${formatNum(g.max)}`;
     return { browser: label, range, count: g.count };
   });
-
   return rows;
 }
 
@@ -94,9 +79,8 @@ function printTargetsTable(resolved: string[]) {
 
   const headers = ["Browser", "Versions (min–max)", "Count"];
   const data = rows.map((r) => [r.browser, r.range, String(r.count)]);
-  const widths = [0, 0, 0];
-  for (let i = 0; i < headers.length; i++) widths[i] = headers[i].length;
-  for (const row of data) for (let i = 0; i < row.length; i++) widths[i] = Math.max(widths[i], row[i].length);
+  const widths = headers.map((h) => h.length);
+  for (const row of data) row.forEach((cell, i) => (widths[i] = Math.max(widths[i], cell.length)));
 
   const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
   const border = `┌${"─".repeat(widths[0] + 2)}┬${"─".repeat(widths[1] + 2)}┬${"─".repeat(widths[2] + 2)}┐`;
@@ -110,10 +94,6 @@ function printTargetsTable(resolved: string[]) {
   for (const [b, r, c] of data) console.log(`│ ${pad(b, widths[0])} │ ${pad(r, widths[1])} │ ${pad(c, widths[2])} │`);
   console.log(end);
 }
-
-/* ============================
-   Rules table utilities
-============================ */
 
 function ruleTypeFromTags(tags: string[]): string {
   if (tags.includes("css")) return "CSS";
@@ -143,35 +123,19 @@ function printRulesTable(allRules: Rule[], enabledIds: Set<string>, packName: st
   console.log(end);
 }
 
-/* ============================
-   Rule selection (default pack=all)
-============================ */
+/* ============== selection ============== */
 
-function selectRules(): Rule[] {
+function selectRules(ALL_RULES: Rule[]): Rule[] {
   const packName = pack ?? "all";
-
-  // Base set = pack (if exists) else ALL rules
-  const baseIds = PACKS[packName] ? new Set(PACKS[packName]) : new Set(RULES.map((r) => r.id));
-  let selected = RULES.filter((r) => baseIds.has(r.id));
-
-  if (tags.length) {
-    selected = selected.filter((r) => tags.some((t) => (r.tags as any).includes(t)));
-  }
-  if (only.length) {
-    const set = new Set(only);
-    selected = selected.filter((r) => set.has(r.id));
-  }
-  if (exclude.length) {
-    const set = new Set(exclude);
-    selected = selected.filter((r) => !set.has(r.id));
-  }
-
+  const baseIds = PACKS[packName] ? new Set(PACKS[packName]) : new Set(ALL_RULES.map((r) => r.id));
+  let selected = ALL_RULES.filter((r) => baseIds.has(r.id));
+  if (tags.length)   selected = selected.filter((r) => tags.some((t) => (r.tags as any).includes(t)));
+  if (only.length)   selected = selected.filter((r) => new Set(only).has(r.id));
+  if (exclude.length) selected = selected.filter((r) => !new Set(exclude).has(r.id));
   return selected;
 }
 
-/* ============================
-   MAIN
-============================ */
+/* ============== main ============== */
 
 (async function main() {
   const started = Date.now();
@@ -179,9 +143,12 @@ function selectRules(): Rule[] {
   const featuresIdx = loadWebFeatures();
   const targets = loadTargets(cwd);
 
+  // Build rule set once: core + inline (from baseline.config.json)
+  const ALL_RULES = getAllRules(RULES, cwd);
+
   if (listRules) {
     console.log("Available rules:");
-    for (const r of RULES) {
+    for (const r of ALL_RULES) {
       console.log(`- ${r.id} [${r.tags.join(", ")}] → ${r.featureId}${r.docs ? " (" + r.docs + ")" : ""}`);
     }
     process.exit(0);
@@ -192,11 +159,11 @@ function selectRules(): Rule[] {
     printTargetsTable(targets.resolved);
   }
 
-  const enabledRules = selectRules();
+  const enabledRules = selectRules(ALL_RULES);
 
   if (format === "pretty") {
     const enabledIds = new Set(enabledRules.map((r) => r.id));
-    printRulesTable(RULES, enabledIds, pack ?? "all");
+    printRulesTable(ALL_RULES, enabledIds, pack ?? "all");
   }
 
   // Scan
@@ -217,10 +184,7 @@ function selectRules(): Rule[] {
 
     for (const r of enabledRules) {
       if (!r.files.includes(ext as any)) continue;
-
-      // Reset stateful /g regex per file
-      r.regex.lastIndex = 0;
-
+      r.regex.lastIndex = 0; // reset /g
       let m: RegExpExecArray | null;
       while ((m = r.regex.exec(text))) {
         const before = text.slice(0, m.index);
@@ -243,7 +207,7 @@ function selectRules(): Rule[] {
     }
   }
 
-  // Console output
+  // Output
   if (format === "json") {
     console.log(JSON.stringify({ targets, filesChecked, problems }, null, 2));
   } else {
@@ -265,13 +229,13 @@ function selectRules(): Rule[] {
       for (const p of problems) {
         console.log(
           `${pc.dim(p.file)}:${pc.yellow(p.line + ":" + p.col)} ${pc.red(p.msg)} ` +
-            `[${p.ruleId} → ${p.featureId}]\n  ↳ ${pc.dim(p.reason)}`
+          `[${p.ruleId} → ${p.featureId}]\n  ↳ ${pc.dim(p.reason)}`
         );
       }
     }
   }
 
-  // Build report object
+  // Report data
   const ruleCounts: Record<string, number> = {};
   for (const p of problems) ruleCounts[p.ruleId] = (ruleCounts[p.ruleId] || 0) + 1;
 
@@ -312,6 +276,5 @@ function selectRules(): Rule[] {
     }
   }
 
-  // CI exit code policy
   if (targets.mode === "error" && problems.length > 0) process.exitCode = 1;
 })();

@@ -1,4 +1,4 @@
-import type { WebFeaturesIndex, WebFeature } from "./types";
+import type { WebFeaturesIndex, WebFeature } from "../types";
 import { features as wfFeatures } from "web-features";
 
 export function loadWebFeatures(): WebFeaturesIndex {

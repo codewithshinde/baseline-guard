@@ -3,8 +3,8 @@ import {
   EXPERIMENTAL_FEATURES,
   POPULAR_FEATURES,
   RISKY_FEATURES,
-} from "./constants";
-import { Rule } from "./types";
+} from ".";
+import { Rule } from "../types";
 
 export const RULES: Rule[] = [
   {

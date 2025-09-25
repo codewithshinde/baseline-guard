@@ -1,18 +1,5 @@
 import type { WebFeaturesIndex, WebFeature } from "./types";
-
-/** Browserslist keys -> web-features agent keys */
-type BLKey = "chrome" | "edge" | "firefox" | "safari" | "ios_saf";
-type AgentKey = "chrome" | "edge" | "firefox" | "safari" | "safari_ios";
-
-const AGENT_MAP: Record<BLKey, AgentKey> = {
-  chrome: "chrome",
-  edge: "edge",
-  firefox: "firefox",
-  safari: "safari",
-  ios_saf: "safari_ios",
-};
-
-type MinMap = Partial<Record<BLKey, string>>;
+import { type BLKey, type AgentKey, type MinMap, AGENT_MAP } from "./constants";
 
 /** Parse "16", "16.3", or "16.0-16.3" into a comparable tuple. */
 function parseVersionTuple(input: string): number[] {
@@ -37,7 +24,9 @@ function cmpVersion(a: string, b: string): number {
 
 /** Pull per-browser minimum support versions from web-features. */
 function extractMinimums(f: WebFeature): MinMap | null {
-  const sup = f.status?.support as Partial<Record<AgentKey, string>> | undefined;
+  const sup = f.status?.support as
+    | Partial<Record<AgentKey, string>>
+    | undefined;
   if (!sup) return null;
 
   const pick = (k: AgentKey): string | undefined => sup?.[k];
@@ -64,7 +53,7 @@ function findUnsupported(blTargets: string[], mins: MinMap): string[] {
     if (!nameRaw || !verRaw) continue;
 
     // Only check keys we know how to map
-    if (!(nameRaw as BLKey in AGENT_MAP)) continue;
+    if (!((nameRaw as BLKey) in AGENT_MAP)) continue;
     const name = nameRaw as BLKey;
 
     const minStr = mins[name];
@@ -95,15 +84,24 @@ export function isFeatureSafeForTargets(
   if (mins) {
     const unsupported = findUnsupported(blTargets, mins);
     if (unsupported.length === 0) {
-      return { safe: true, reason: "All targets meet minimum support versions." };
+      return {
+        safe: true,
+        reason: "All targets meet minimum support versions.",
+      };
     }
-    return { safe: false, reason: `Not supported by: ${unsupported.join(", ")}` };
+    return {
+      safe: false,
+      reason: `Not supported by: ${unsupported.join(", ")}`,
+    };
   }
 
   // 2) If no minima, optionally allow Baseline: high
   const baseline = f.status?.baseline;
   if (baseline === "high") {
-    return { safe: true, reason: "Baseline: high (no per-browser minima found)." };
+    return {
+      safe: true,
+      reason: "Baseline: high (no per-browser minima found).",
+    };
   }
 
   // 3) Conservative default

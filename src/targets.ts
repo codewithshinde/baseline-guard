@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import browserslist from "browserslist";
 import type { ResolvedTargets, Mode } from "./types";
+import { readBaselineConfig } from "./utils/config";
 
 export function loadTargets(cwd: string): ResolvedTargets {
   const fallback = [
@@ -13,23 +14,18 @@ export function loadTargets(cwd: string): ResolvedTargets {
   ];
   const defaultMode: Mode = "warn";
 
-  const baselinePath = path.join(cwd, "baseline.config.json");
-  if (fs.existsSync(baselinePath)) {
-    try {
-      const cfg = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
-      const q =
-        Array.isArray(cfg.targets) && cfg.targets.length
-          ? cfg.targets
-          : fallback;
-      return {
-        source: "baseline.config.json",
-        query: q,
-        resolved: browserslist(q, { path: cwd }),
-        mode: cfg.mode ?? defaultMode,
-      };
-    } catch {}
+  // 1) baseline.config.json (single source of truth)
+  const cfg = readBaselineConfig(cwd);
+  if (cfg?.targets?.length) {
+    return {
+      source: "baseline.config.json",
+      query: cfg.targets,
+      resolved: browserslist(cfg.targets, { path: cwd }),
+      mode: cfg.mode ?? defaultMode,
+    };
   }
 
+  // 2) package.json:baseline.targets
   const pkgPath = path.join(cwd, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -43,28 +39,21 @@ export function loadTargets(cwd: string): ResolvedTargets {
           mode: pkg.baseline.mode ?? defaultMode,
         };
       }
+      
+      // 3) Browserslist config (package.json/.browserslistrc)
       const resolved = browserslist(undefined, { path: cwd });
-      if (resolved?.length)
+      if (resolved?.length) {
         return {
           source: "browserslist",
           query: ["<browserslist>"],
           resolved,
           mode: defaultMode,
         };
+      }
     } catch {}
   }
 
-  try {
-    const resolved = browserslist(undefined, { path: cwd });
-    if (resolved?.length)
-      return {
-        source: "browserslist",
-        query: ["<browserslist>"],
-        resolved,
-        mode: defaultMode,
-      };
-  } catch {}
-
+  // 4) Fallback preset
   return {
     source: "fallback",
     query: fallback,

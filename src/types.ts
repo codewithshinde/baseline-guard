@@ -4,11 +4,31 @@ export type Rule = {
   files: ("js" | "ts" | "tsx" | "css" | "html")[];
   regex: RegExp;
   message: string;
-  tags: ("popular" | "bug-prone" | "experimental" | "css" | "js" | "html" | "risky")[];
+  tags:
+    | ("popular" | "bug-prone" | "experimental" | "css" | "js" | "html" | "risky")[]
+    | string[];
   docs?: string;
 };
 
+export type WireRule = {
+  id: string;
+  featureId: string;
+  files: ("js" | "ts" | "tsx" | "css" | "html")[];
+  pattern: string; // regex body as JSON string (escaped)
+  flags?: string;  // e.g. "gim"
+  message: string;
+  tags: string[];
+  docs?: string;
+};
+
+export type BaselineConfig = {
+  targets?: string[];
+  mode?: Mode;
+  rules?: WireRule[];
+};
+
 export type Mode = "off" | "warn" | "error";
+
 export type ResolvedTargets = {
   source: string;
   query: string[];
@@ -45,13 +65,13 @@ export type Report = {
 };
 
 export type WebFeature = {
-    kind?: "feature" | "moved" | "split";
-    name?: string;
-    description?: string;
-    status?: {
-      baseline?: "high" | "low" | false;
-      /** Min supported versions by browser (strings like "17", "17.4") */
-      support?: Partial<Record<
+  kind?: "feature" | "moved" | "split";
+  name?: string;
+  description?: string;
+  status?: {
+    baseline?: "high" | "low" | false;
+    support?: Partial<
+      Record<
         | "chrome"
         | "chrome_android"
         | "edge"
@@ -60,19 +80,25 @@ export type WebFeature = {
         | "safari"
         | "safari_ios",
         string
-      >>;
-    };
-    discouraged?: unknown;
-    group?: string[];      // optional
-    snapshot?: string[];   // optional
-    caniuse?: string[];    // optional
-    compat_features?: string[]; // optional
+      >
+    >;
   };
+  discouraged?: unknown;
+  group?: string[];
+  snapshot?: string[];
+  caniuse?: string[];
+  compat_features?: string[];
+};
 
-  export type WebFeaturesIndex = {
-    byId: Map<string, WebFeature>;
-    allIds: string[];
-  };
+export type WebFeaturesIndex = {
+  byId: Map<string, WebFeature>;
+  allIds: string[];
+};
 
-  export type BrowserKey = "chrome" | "edge" | "firefox" | "safari" | "ios_saf" | string;
-
+export type BrowserKey =
+  | "chrome"
+  | "edge"
+  | "firefox"
+  | "safari"
+  | "ios_saf"
+  | string;
