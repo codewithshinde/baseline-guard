@@ -1,5 +1,5 @@
-import type { WebFeaturesIndex, WebFeature, UnsupportedItem } from "./types";
-import { type BLKey, type AgentKey, type MinMap, AGENT_MAP } from "./constants";
+import type { WebFeaturesIndex, WebFeature, UnsupportedItem } from "../types";
+import { type BLKey, type AgentKey, type MinMap, AGENT_MAP } from "../constants";
 
 /** "16", "16.3", or "16.0-16.3" -> version tuple for comparison */
 function parseVersionTuple(input: string): number[] {
@@ -8,7 +8,7 @@ function parseVersionTuple(input: string): number[] {
   return cleaned.split(".").map((n) => Number(n || 0));
 }
 
-/** Compare version strings like "16.3" < "16.4" */
+/** Compare version strings like "16.3" < "16.4". */
 function cmpVersion(a: string, b: string): number {
   const A = parseVersionTuple(a);
   const B = parseVersionTuple(b);
@@ -28,23 +28,17 @@ function extractMinimums(f: WebFeature): MinMap | null {
     | Partial<Record<AgentKey, string>>
     | undefined;
   if (!sup) return null;
-
   const pick = (k: AgentKey): string | undefined => sup?.[k];
-
-  const out: MinMap = {
+  return {
     chrome: pick("chrome"),
     edge: pick("edge"),
     firefox: pick("firefox"),
     safari: pick("safari"),
     ios_saf: pick("safari_ios"),
   };
-  return out;
 }
 
-/**
- * Given Browserslist-resolved targets like ["safari 16.0","safari 16.3","ios_saf 16.1", ...]
- * return structured unsupported entries with min versions.
- */
+/** Build structured unsupported entries for given targets. */
 function findUnsupported(blTargets: string[], mins: MinMap): UnsupportedItem[] {
   const out: UnsupportedItem[] = [];
   for (const t of blTargets) {
@@ -57,7 +51,6 @@ function findUnsupported(blTargets: string[], mins: MinMap): UnsupportedItem[] {
 
     const minStr = mins[name];
     if (!minStr) {
-      // No known minimum => mark as unknown support
       out.push({ browser: name, target: verRaw });
       continue;
     }
@@ -68,18 +61,21 @@ function findUnsupported(blTargets: string[], mins: MinMap): UnsupportedItem[] {
   return out;
 }
 
+/**
+ * Determine if a given feature is safe for the provided browserslist targets.
+ * Prefers exact minima from web-features; falls back to Baseline: high; otherwise conservative fail.
+ */
 export function isFeatureSafeForTargets(
   featureId: string,
   blTargets: string[],
   idx: WebFeaturesIndex
 ): { safe: boolean; reason: string; unsupported?: UnsupportedItem[] } {
   const f = idx.byId.get(featureId);
-
   if (!f) {
     return { safe: false, reason: `Unknown feature "${featureId}".` };
   }
 
-  // 1) Prefer exact minima if available (most accurate)
+  // 1) Prefer exact minima if available
   const mins = extractMinimums(f);
   if (mins) {
     const unsupported = findUnsupported(blTargets, mins);
@@ -89,18 +85,13 @@ export function isFeatureSafeForTargets(
         reason: "All targets meet minimum support versions.",
       };
     }
-    // Build a helpful reason string too
     const pretty = unsupported
       .map((u) => `${u.browser} ${u.target}${u.min ? ` (< ${u.min})` : ""}`)
       .join(", ");
-    return {
-      safe: false,
-      reason: `Not supported by: ${pretty}`,
-      unsupported,
-    };
+    return { safe: false, reason: `Not supported by: ${pretty}`, unsupported };
   }
 
-  // 2) If no minima, optionally allow Baseline: high
+  // 2) Fall back to Baseline: high
   const baseline = f.status?.baseline;
   if (baseline === "high") {
     return {

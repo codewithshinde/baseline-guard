@@ -1,221 +1,135 @@
 #!/usr/bin/env node
+import fg from "fast-glob";
 import fs from "fs";
 import path from "path";
-import fg from "fast-glob";
 import pc from "picocolors";
 
-import { RULES, PACKS } from "./constants/rules";
-import { loadTargets } from "./targets";
-import { isFeatureSafeForTargets } from "./check";
-import type { Rule, Finding, Report, BrowserKey } from "./types";
+import { PACKS, RULES, labelMap } from "./constants";
+import { generateRulesFromWebFeatures } from "./rules";
+import {
+  BASELINE_CONFIG_FILENAME,
+  ensureDirFor,
+  getAllRules,
+  isFeatureSafeForTargets,
+  loadTargets,
+  loadWebFeatures,
+  parseArgs,
+  prettyUnsupportedLines,
+  printTable,
+  selectRules,
+  summarizeTargets,
+  timestampSlug,
+} from "./utils";
+
 import {
   buildJsonReport,
   getReportTemplate,
   renderMarkdownReport,
-} from "./report";
-import { ensureDirFor, timestampSlug } from "./utils/common";
-import { getAllRules, loadWebFeatures } from "./utils";
-import { labelMap } from "./constants";
-
-/* ============== args ============== */
-const args = process.argv.slice(2);
-const arg = (k: string) =>
-  args.find((a) => a.startsWith(`${k}=`))?.split("=")[1];
-
-const only = (arg("--only") ?? "").split(",").filter(Boolean);
-const exclude = (arg("--exclude") ?? "").split(",").filter(Boolean);
-const tags = (arg("--tags") ?? "").split(",").filter(Boolean);
-const pack = arg("--pack"); // default to "all" later if not provided
-const listRules = args.includes("--list-rules");
-const watch = args.includes("--watch");
-
-const format = (arg("--format") ?? "pretty") as "pretty" | "json";
-const reportKind = (arg("--report") ?? "").toLowerCase() as
-  | ""
-  | "json"
-  | "md"
-  | "html";
-const outPathArg = arg("--out");
-const saveFlag = args.includes("--save");
+} from "./reports";
+import type { Finding, Report, UnsupportedItem } from "./types";
 
 
-function parseRangeNumber(token: string): [number, number] {
-  const t = token.replace("–", "-");
-  const [a, b] = t.split("-");
-  const lo = Number.parseFloat(a);
-  const hi = b ? Number.parseFloat(b) : lo;
-  return [lo, hi];
-}
-
-function formatNum(n: number): string {
-  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
-}
-
-function summarizeTargets(resolved: string[]) {
-  const groups = new Map<
-    BrowserKey,
-    { min: number; max: number; count: number }
-  >();
-  for (const entry of resolved) {
-    const [name, verRaw = ""] = entry.split(" ");
-    if (!name || !verRaw) continue;
-    const [lo, hi] = parseRangeNumber(verRaw);
-    const g = groups.get(name as BrowserKey) ?? { min: lo, max: hi, count: 0 };
-    g.min = Math.min(g.min, lo);
-    g.max = Math.max(g.max, hi);
-    g.count += 1;
-    groups.set(name as BrowserKey, g);
-  }
-  const preferred: BrowserKey[] = [
-    "chrome",
-    "edge",
-    "firefox",
-    "safari",
-    "ios_saf",
-  ];
-  const others = [...groups.keys()]
-    .filter((k) => !preferred.includes(k))
-    .sort();
-  const ordered = [...preferred.filter((k) => groups.has(k)), ...others];
-
-  const rows = ordered.map((key) => {
-    const g = groups.get(key)!;
-    const label = labelMap[key] ?? key;
-    const range = `${formatNum(g.min)}–${formatNum(g.max)}`;
-    return { browser: label, range, count: g.count };
-  });
-  return rows;
-}
-
-function printTargetsTable(resolved: string[]) {
-  const rows = summarizeTargets(resolved);
-  if (rows.length === 0) return;
-
-  const headers = ["Browser", "Versions (min–max)", "Count"];
-  const data = rows.map((r) => [r.browser, r.range, String(r.count)]);
-  const widths = headers.map((h) => h.length);
-  for (const row of data)
-    row.forEach((cell, i) => (widths[i] = Math.max(widths[i], cell.length)));
-
-  const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
-  const border = `┌${"─".repeat(widths[0] + 2)}┬${"─".repeat(
-    widths[1] + 2
-  )}┬${"─".repeat(widths[2] + 2)}┐`;
-  const mid = `├${"─".repeat(widths[0] + 2)}┼${"─".repeat(
-    widths[1] + 2
-  )}┼${"─".repeat(widths[2] + 2)}┤`;
-  const end = `└${"─".repeat(widths[0] + 2)}┴${"─".repeat(
-    widths[1] + 2
-  )}┴${"─".repeat(widths[2] + 2)}┘`;
-
-  console.log(pc.cyan("Targets (summary)"));
-  console.log(border);
-  console.log(
-    `│ ${pad(headers[0], widths[0])} │ ${pad(headers[1], widths[1])} │ ${pad(
-      headers[2],
-      widths[2]
-    )} │`
-  );
-  console.log(mid);
-  for (const [b, r, c] of data)
-    console.log(
-      `│ ${pad(b, widths[0])} │ ${pad(r, widths[1])} │ ${pad(c, widths[2])} │`
-    );
-  console.log(end);
-}
-
-function ruleTypeFromTags(tags: string[]): string {
-  if (tags.includes("css")) return "CSS";
-  if (tags.includes("html")) return "HTML";
-  if (tags.includes("js")) return "JS";
-  return tags[0]?.toUpperCase() ?? "OTHER";
-}
-
-function printRulesTable(
-  allRules: Rule[],
-  enabledIds: Set<string>,
-  packName: string
-) {
-  const headers = ["Rule", "Checked", "Rule Type"];
-  const rows = allRules.map((r) => [
-    r.id,
-    enabledIds.has(r.id) ? "Yes" : "No",
-    ruleTypeFromTags(r.tags as any),
-  ]);
-  rows.sort((a, b) =>
-    a[2] === b[2] ? a[0].localeCompare(b[0]) : a[2].localeCompare(b[2])
-  );
-
-  const widths = headers.map((h) => h.length);
-  for (const row of rows)
-    row.forEach((cell, i) => (widths[i] = Math.max(widths[i], cell.length)));
-
-  const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
-  const border = `┌${"─".repeat(widths[0] + 2)}┬${"─".repeat(
-    widths[1] + 2
-  )}┬${"─".repeat(widths[2] + 2)}┐`;
-  const mid = `├${"─".repeat(widths[0] + 2)}┼${"─".repeat(
-    widths[1] + 2
-  )}┼${"─".repeat(widths[2] + 2)}┤`;
-  const end = `└${"─".repeat(widths[0] + 2)}┴${"─".repeat(
-    widths[1] + 2
-  )}┴${"─".repeat(widths[2] + 2)}┘`;
-
-  console.log(pc.cyan(`Rules (pack: ${packName || "all"})`));
-  console.log(border);
-  console.log(
-    `│ ${pad(headers[0], widths[0])} │ ${pad(headers[1], widths[1])} │ ${pad(
-      headers[2],
-      widths[2]
-    )} │`
-  );
-  console.log(mid);
-  for (const row of rows)
-    console.log(
-      `│ ${pad(row[0], widths[0])} │ ${pad(row[1], widths[1])} │ ${pad(
-        row[2],
-        widths[2]
-      )} │`
-    );
-  console.log(end);
-}
-
-/* ============== selection ============== */
-
-function selectRules(ALL_RULES: Rule[]): Rule[] {
-  const packName = pack ?? "all";
-  const baseIds = PACKS[packName]
-    ? new Set(PACKS[packName])
-    : new Set(ALL_RULES.map((r) => r.id));
-  let selected = ALL_RULES.filter((r) => baseIds.has(r.id));
-  if (tags.length)
-    selected = selected.filter((r) =>
-      tags.some((t) => (r.tags as any).includes(t))
-    );
-  if (only.length) selected = selected.filter((r) => new Set(only).has(r.id));
-  if (exclude.length)
-    selected = selected.filter((r) => !new Set(exclude).has(r.id));
-  return selected;
-}
-
-/* ============== main ============== */
 
 (async function main() {
   const started = Date.now();
   const cwd = process.cwd();
+  const args = parseArgs(process.argv.slice(2));
+
+  // Flags / options
+  const only = args.list("--only");
+  const exclude = args.list("--exclude");
+  const tags = args.list("--tags");
+  const pack = args.get("--pack");
+  const listRules = args.has("--list-rules");
+
+  const emitOne = args.get("--emit-rule");
+  const emitAll = args.has("--emit-all-rules");
+
+  const reportKind = (args.get("--report") ?? "").toLowerCase() as
+    | ""
+    | "json"
+    | "md"
+    | "html";
+  const outPathArg = args.get("--out");
+  const saveFlag = args.has("--save");
+
+  // Inputs / targets / features
   const featuresIdx = loadWebFeatures();
   const targets = loadTargets(cwd);
 
-  // Build rule set once: core + inline (from baseline.config.json)
+  // Rules (core + inline/custom)
   const ALL_RULES = getAllRules(RULES, cwd);
 
-  // LIST mode now respects --tags/--pack/--only/--exclude
+  /* -----------------------------
+     Emit helpers (generate rules)
+  ------------------------------*/
+  if (emitOne || emitAll) {
+    const generated = generateRulesFromWebFeatures(featuresIdx);
+
+    if (emitAll) {
+      const outPath = path.resolve(cwd, ".baseline/web-feature-rules.json");
+      ensureDirFor(outPath);
+      fs.writeFileSync(outPath, JSON.stringify(generated, null, 2) + "\n");
+      console.log(
+        `✅ Wrote ${generated.length} generated rules → ${path.relative(
+          cwd,
+          outPath
+        )}`
+      );
+      process.exit(0);
+    }
+
+    if (emitOne) {
+      const rule = generated.find((r: { id: string }) => r.id === emitOne);
+      if (!rule) {
+        console.error(
+          pc.red(
+            `No generated rule found for featureId "${emitOne}". Check the id in web-features.`
+          )
+        );
+        process.exit(2);
+      }
+      const cfgPath = path.join(cwd, BASELINE_CONFIG_FILENAME);
+      const cfg = fs.existsSync(cfgPath)
+        ? JSON.parse(fs.readFileSync(cfgPath, "utf8"))
+        : {};
+      cfg.rules = Array.isArray(cfg.rules) ? cfg.rules : [];
+      const idx = cfg.rules.findIndex((r: any) => r.id === rule.id);
+      if (idx >= 0) cfg.rules[idx] = rule;
+      else cfg.rules.push(rule);
+      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+      console.log(
+        `✅ Injected rule "${emitOne}" into ${BASELINE_CONFIG_FILENAME} (rules[])`
+      );
+      process.exit(0);
+    }
+
+  }
+
+  /* -----------------------------
+     Pretty headers / targets
+  ------------------------------*/
+  console.log(pc.cyan(`Baseline Guard (source: ${targets.source})`));
+  const targetRows = summarizeTargets(targets.resolved).map((r) => [
+    r.browser,
+    r.range,
+    String(r.count),
+  ]);
+  printTable(
+    "Targets (summary)",
+    ["Browser", "Versions (min–max)", "Count"],
+    targetRows
+  );
+
+  /* -----------------------------
+     Rules: list or select
+  ------------------------------*/
   if (listRules) {
-    const list = selectRules(ALL_RULES);
+    const list = selectRules(ALL_RULES, { pack, tags, only, exclude });
     console.log("Available rules:");
     for (const r of list) {
       console.log(
-        `- ${r.id} [${r.tags.join(", ")}] → ${r.featureId}${
+        `- ${r.id} [${(r.tags as string[]).join(", ")}] → ${r.featureId}${
           r.docs ? " (" + r.docs + ")" : ""
         }`
       );
@@ -223,19 +137,28 @@ function selectRules(ALL_RULES: Rule[]): Rule[] {
     process.exit(0);
   }
 
-  if (format === "pretty") {
-    console.log(pc.cyan(`Baseline Guard (source: ${targets.source})`));
-    printTargetsTable(targets.resolved);
-  }
+  const enabledRules = selectRules(ALL_RULES, { pack, tags, only, exclude });
+  const enabledIds = new Set(enabledRules.map((r) => r.id));
+  const packLabel = pack && PACKS[pack] ? pack : "all";
 
-  const enabledRules = selectRules(ALL_RULES);
+  const ruleRows = ALL_RULES.map((r) => [
+    r.id,
+    enabledIds.has(r.id) ? "Yes" : "No",
+    /* type */ (r.tags?.[0] ?? "other").toUpperCase(),
+  ]).sort((a, b) =>
+    a[2] === b[2]
+      ? String(a[0]).localeCompare(String(b[0]))
+      : String(a[2]).localeCompare(String(b[2]))
+  );
+  printTable(
+    `Rules (pack: ${packLabel})`,
+    ["Rule", "Checked", "Rule Type"],
+    ruleRows
+  );
 
-  if (format === "pretty") {
-    const enabledIds = new Set(enabledRules.map((r) => r.id));
-    printRulesTable(ALL_RULES, enabledIds, pack ?? "all");
-  }
-
-  // Scan
+  /* -----------------------------
+     Scan files
+  ------------------------------*/
   const globs = [
     "**/*.{js,jsx,ts,tsx,css,html}",
     "!node_modules/**",
@@ -246,7 +169,8 @@ function selectRules(ALL_RULES: Rule[]): Rule[] {
   const filesChecked = absFiles.map((abs) => path.relative(cwd, abs));
   const problems: Finding[] = [];
 
-  for (const [i, abs] of absFiles.entries()) {
+  for (let i = 0; i < absFiles.length; i++) {
+    const abs = absFiles[i];
     const rel = filesChecked[i];
     const ext = (rel.split(".").pop() || "").toLowerCase();
     const text = fs.readFileSync(abs, "utf8");
@@ -274,60 +198,60 @@ function selectRules(ALL_RULES: Rule[]): Rule[] {
             featureId: r.featureId,
             msg: r.message,
             reason: decision.reason,
-            unsupported: decision.unsupported, // NEW: structured failures per browser
+            unsupported: (decision as any).unsupported,
           });
         }
       }
     }
   }
 
-  // Output
-  if (format === "json") {
-    console.log(JSON.stringify({ targets, filesChecked, problems }, null, 2));
+  /* -----------------------------
+     Output summary
+  ------------------------------*/
+  console.log(pc.dim(`Scanned ${filesChecked.length} file(s)`));
+  if (problems.length === 0) {
+    console.log(pc.green("No errors found"));
   } else {
-    console.log(pc.dim(`Scanned ${filesChecked.length} file(s)`));
+    const counts: Record<string, number> = {};
+    for (const p of problems) counts[p.ruleId] = (counts[p.ruleId] || 0) + 1;
 
-    if (problems.length === 0) {
-      console.log(pc.green("No errors found"));
-    } else {
-      const counts: Record<string, number> = {};
-      for (const p of problems) counts[p.ruleId] = (counts[p.ruleId] || 0) + 1;
-      const top = Object.entries(counts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5);
+    const top = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    console.log(
+      pc.yellow(
+        `⚠ Found ${problems.length} issue(s) across ${
+          Object.keys(counts).length
+        } rule(s).`
+      )
+    );
+    if (top.length) {
+      console.log(pc.yellow("Top rules:"));
+      for (const [rid, c] of top) console.log(pc.yellow(` - ${rid}: ${c}`));
+    }
 
+    for (const p of problems) {
       console.log(
-        pc.yellow(
-          `⚠ Found ${problems.length} issue(s) across ${
-            Object.keys(counts).length
-          } rule(s).`
-        )
+        `${pc.dim(p.file)}:${pc.yellow(p.line + ":" + p.col)} ${pc.red(
+          p.msg
+        )} [${p.ruleId} → ${p.featureId}]`
       );
-      if (top.length) {
-        console.log(pc.yellow(`Top rules:`));
-        for (const [rid, c] of top) console.log(pc.yellow(` - ${rid}: ${c}`));
-      }
-      for (const p of problems) {
-        console.log(
-          `${pc.dim(p.file)}:${pc.yellow(p.line + ":" + p.col)} ${pc.red(
-            p.msg
-          )} ` + `[${p.ruleId} → ${p.featureId}]`
+      if (p.unsupported?.length) {
+        const lines = prettyUnsupportedLines(
+          p.unsupported as UnsupportedItem[],
+          labelMap
         );
-        if (p.unsupported?.length) {
-          const detail = p.unsupported
-            .map(
-              (u) => `${u.browser} ${u.target}${u.min ? ` (< ${u.min})` : ""}`
-            )
-            .join(", ");
-          console.log(`  ↳ ${pc.dim(detail)}`);
-        } else {
-          console.log(`  ↳ ${pc.dim(p.reason)}`);
-        }
+        console.log(pc.dim("  ↳ Failing targets:"));
+        for (const line of lines) console.log(pc.dim(`     • ${line}`));
+      } else {
+        console.log(`  ↳ ${pc.dim(p.reason)}`);
       }
     }
   }
 
-  // Report data
+  /* -----------------------------
+     Report (optional)
+  ------------------------------*/
   const ruleCounts: Record<string, number> = {};
   for (const p of problems)
     ruleCounts[p.ruleId] = (ruleCounts[p.ruleId] || 0) + 1;
@@ -346,7 +270,6 @@ function selectRules(ALL_RULES: Rule[]): Rule[] {
     problems,
   };
 
-  // Save report if requested
   const ext = reportKind || (saveFlag ? "md" : "");
   if (ext) {
     const defaultPath = path.join(
@@ -368,10 +291,7 @@ function selectRules(ALL_RULES: Rule[]): Rule[] {
 
     if (contents) {
       fs.writeFileSync(outPath, contents, "utf8");
-      if (format === "pretty")
-        console.log(
-          pc.green(`📄 Report saved: ${path.relative(cwd, outPath)}`)
-        );
+      console.log(pc.green(`📄 Report saved: ${path.relative(cwd, outPath)}`));
     }
   }
 

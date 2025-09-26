@@ -119,3 +119,15 @@ export type UnsupportedItem = {
   target: string; // e.g., "16.1"
   min?: string; // e.g., "16.4"
 };
+
+export type ArgMap = {
+  get: (k: string) => string | undefined;
+  has: (k: string) => boolean;
+  list: (k: string) => string[]; // comma-separated
+};
+
+export type Kind = "css" | "html" | "js";
+export type Guess =
+  | { kind: "css"; files: ("css")[]; pattern: string; flags?: string }
+  | { kind: "html"; files: ("html")[]; pattern: string; flags?: string }
+  | { kind: "js"; files: ("js"|"ts"|"tsx")[]; pattern: string; flags?: string };
