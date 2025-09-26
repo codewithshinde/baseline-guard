@@ -3,7 +3,10 @@ import path from "path";
 import type { BaselineConfig, Mode, WireRule } from "../types";
 
 let cache: { cwd: string; cfg: BaselineConfig | null } | null = null;
+
+export const DEFAULT_FOLDER = ".baseline";
 export const BASELINE_CONFIG_FILENAME = "baseline.config.json";
+export const WEB_FEATURES_FILES_GENERATED = "web-features.json";
 
 /** Type guard for Mode ("off" | "warn" | "error"). */
 function isMode(x: any): x is Mode {

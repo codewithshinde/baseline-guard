@@ -1,24 +1,12 @@
-import type { Report } from "../types";
-import { escapePipes, groupTargets } from "../utils";
-import { RULES } from "../constants/rules";
 import { labelMap } from "../constants";
-
-function renderUnsupported(p: any): string {
-  const unsupported = p?.unsupported as
-    | { browser: string; target: string; min?: string }[]
-    | undefined;
-
-  if (unsupported?.length) {
-    return unsupported
-      .map(
-        (u) =>
-          `${u.browser} ${u.target}${u.min ? ` (< ${u.min})` : ""}`
-      )
-      .join(", ");
-  }
-
-  return p?.reason ?? "—";
-}
+import { RULES } from "../constants/rules";
+import type { Report } from "../types";
+import {
+  escapePipes,
+  groupTargets,
+  renderUnsupportedHTML,
+  ruleTypeFromTags,
+} from "../utils";
 
 export function renderMarkdownReport(data: Report): string {
   const targetsBy: Record<string, string[]> = groupTargets(data.targets);
@@ -33,12 +21,12 @@ export function renderMarkdownReport(data: Report): string {
 
   // Violations by rule
   const totals =
-    Object.entries(data.ruleCounts)
+    Object.entries(data.ruleCounts || {})
       .sort((a, b) => b[1] - a[1])
       .map(([rule, count]) => `- \`${rule}\`: **${count}**`)
       .join("\n") || "_No violations_";
 
-  // Browser targets table (not clubbed)
+  // Browser targets table (grouped)
   const targetsTable =
     [
       `| Browser | Versions |`,
@@ -53,25 +41,33 @@ export function renderMarkdownReport(data: Report): string {
         ),
     ].join("\n") || "_No targets_";
 
-  // Web Features Coverage
+  // Coverage (matches CLI columns)
   const enabledSet: Set<string> = (data as any).enabledRuleIds
     ? new Set<string>((data as any).enabledRuleIds)
     : new Set<string>(RULES.map((r) => r.id));
   const packName = (data as any).packName ?? "all";
+  const showRulesMode: "checked" | "all" =
+    ((data as any).showRulesMode as any) ?? "checked";
 
-  const coverageTable =
-    [
-      `| Web Feature | Rule | Covered |`,
-      `|-------------|------|---------|`,
-      ...RULES.map(
-        (r) =>
-          `| \`${r.featureId}\` | \`${r.id}\` | ${
-            enabledSet.has(r.id) ? "Yes" : "No"
-          } |`
-      ),
-    ].join("\n") || "_No rules_";
+  const rulesForDisplay =
+    showRulesMode === "checked"
+      ? RULES.filter((r) => enabledSet.has(r.id))
+      : RULES;
 
-  // Issues table (now includes Unsupported column)
+  const coverageTable = [
+    `| Web Feature ID | Rule | Checked | Rule Type | Tags | Pack |`,
+    `|----------------|------|---------|-----------|------|------|`,
+    ...rulesForDisplay.map((r) => {
+      const checked = enabledSet.has(r.id) ? "Yes" : "No";
+      const type = ruleTypeFromTags(r.tags as string[] | undefined);
+      const tags = (r.tags as string[] | undefined)?.join(", ") ?? "";
+      return `| \`${r.featureId}\` | \`${
+        r.id
+      }\` | ${checked} | ${type} | ${escapePipes(tags)} | ${packName} |`;
+    }),
+  ].join("\n");
+
+  // Issues table (now concise "Unsupported" column)
   const problems =
     data.problems.length === 0
       ? "_No issues found_"
@@ -80,9 +76,11 @@ export function renderMarkdownReport(data: Report): string {
           "|------|---------:|----------------|---------|------------------------------------|",
           ...data.problems.map(
             (p) =>
-              `| \`${p.file}\` | ${p.line}:${p.col} | \`${p.ruleId}\` → \`${p.featureId}\` | ${escapePipes(
-                p.msg
-              )} | ${escapePipes(renderUnsupported(p))} |`
+              `| \`${p.file}\` | ${p.line}:${p.col} | \`${p.ruleId}\` → \`${
+                p.featureId
+              }\` | ${escapePipes(p.msg)} | ${escapePipes(
+                renderUnsupportedHTML(p)
+              )} |`
           ),
         ].join("\n");
 
@@ -94,7 +92,9 @@ export function renderMarkdownReport(data: Report): string {
   return (
     header +
     `## Browser Targets\n\n${targetsTable}\n\n` +
-    `## Web Features Coverage (pack: ${packName})\n\n${coverageTable}\n\n` +
+    `## Web Features Coverage (pack: ${packName}${
+      showRulesMode === "checked" ? ", filtered: checked" : ""
+    })\n\n${coverageTable}\n\n` +
     `## Summary (Violations by Rule)\n\n${totals}\n\n` +
     `## Issues\n\n${problems}\n\n` +
     `## Files Checked\n\n${files}\n`

@@ -128,6 +128,17 @@ export type ArgMap = {
 
 export type Kind = "css" | "html" | "js";
 export type Guess =
-  | { kind: "css"; files: ("css")[]; pattern: string; flags?: string }
-  | { kind: "html"; files: ("html")[]; pattern: string; flags?: string }
-  | { kind: "js"; files: ("js"|"ts"|"tsx")[]; pattern: string; flags?: string };
+  | { kind: "css"; files: "css"[]; pattern: string; flags?: string }
+  | { kind: "html"; files: "html"[]; pattern: string; flags?: string }
+  | {
+      kind: "js";
+      files: ("js" | "ts" | "tsx")[];
+      pattern: string;
+      flags?: string;
+    };
+
+export type EvalSafetyFn = (
+  featureId: string,
+  blTargets: string[],
+  idx: WebFeaturesIndex
+) => { safe: boolean; unsupported?: Array<unknown> };

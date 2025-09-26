@@ -1,6 +1,6 @@
-// utils/rules.ts
+import pc from "picocolors";
 import { PACKS } from "../constants";
-import type { Rule, WireRule } from "../types";
+import type { EvalSafetyFn, Rule, WebFeaturesIndex, WireRule } from "../types";
 import { readBaselineConfig } from "./config";
 
 /** Keep only valid JS regex flags, preserve order, dedupe, and ensure 'g'. */
@@ -97,4 +97,103 @@ export function selectRules(
     selected = selected.filter((r) => !set.has(r.id));
   }
   return selected;
+}
+
+/** Map tags → normalized type for display. */
+export function ruleTypeFromTags(tags?: string[]): string {
+  if (!tags?.length) return "OTHER";
+  if (tags.includes("css")) return "CSS";
+  if (tags.includes("html")) return "HTML";
+  if (tags.includes("js")) return "JS";
+  return (tags[0] ?? "other").toUpperCase();
+}
+
+/**
+ * Render the rules table with row-level highlighting.
+ *
+ * Behavior:
+ * - If `opts.highlightFeatureIds` is provided (normal run after scan), highlight rows red
+ *   when the featureId was actually involved in a finding.
+ * - Else (e.g., `--list-rules` pre-scan), and if `evalSafety` is provided,
+ *   highlight rows red **only** when minima clearly fail (i.e., evalSafety().unsupported exists).
+ *   Unknown/no-minima cases are NOT highlighted.
+ */
+export function renderRulesTable(
+  title: string,
+  rules: Rule[],
+  enabledIds: Set<string>,
+  packLabel: string,
+  targetsResolved: string[],
+  featuresIdx: WebFeaturesIndex,
+  opts?: {
+    highlightFeatureIds?: Set<string>;
+    evalSafety?: EvalSafetyFn;
+  }
+) {
+  const headers = [
+    "Web Feature ID",
+    "Rule",
+    "Checked",
+    "Rule Type",
+    "Tags",
+    "Pack",
+  ];
+
+  // Precompute minima-based red flags when no highlight set provided
+  const redByMinima = new Set<string>(); // rule.id
+  if (!opts?.highlightFeatureIds && opts?.evalSafety) {
+    for (const r of rules) {
+      const d = opts.evalSafety(r.featureId, targetsResolved, featuresIdx);
+      if (!d.safe && (d as any).unsupported?.length) {
+        redByMinima.add(r.id);
+      }
+    }
+  }
+
+  const rowsRaw = rules
+    .map((r) => [
+      r.featureId || "",
+      r.id,
+      enabledIds.has(r.id) ? "Yes" : "No",
+      ruleTypeFromTags(r.tags as string[] | undefined),
+      (r.tags as string[] | undefined)?.join(", ") ?? "",
+      packLabel,
+    ])
+    .sort((a, b) =>
+      a[3] === b[3]
+        ? String(a[1]).localeCompare(String(b[1]))
+        : String(a[3]).localeCompare(String(b[3]))
+    );
+
+  // compute widths from uncolored data
+  const widths = headers.map((h) => h.length);
+  for (const row of rowsRaw)
+    row.forEach((c, i) => (widths[i] = Math.max(widths[i], String(c).length)));
+
+  const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
+  const bar = (l: string, m: string, r: string, fill = "─") =>
+    `${l}${widths.map((w) => fill.repeat(w + 2)).join(m)}${r}`;
+
+  console.log(pc.cyan(title));
+  console.log(bar("┌", "┬", "┐"));
+  console.log(
+    "│ " + headers.map((h, i) => pad(h, widths[i])).join(" │ ") + " │"
+  );
+  console.log(bar("├", "┼", "┤"));
+
+  for (const row of rowsRaw) {
+    const featureId = String(row[0]);
+    const ruleId = String(row[1]);
+
+    const line =
+      "│ " + row.map((c, i) => pad(String(c), widths[i])).join(" │ ") + " │";
+
+    const isRed =
+      (opts?.highlightFeatureIds && opts.highlightFeatureIds.has(featureId)) ||
+      (!opts?.highlightFeatureIds && redByMinima.has(ruleId));
+
+    console.log(isRed ? pc.red(line) : line);
+  }
+
+  console.log(bar("└", "┴", "┘"));
 }

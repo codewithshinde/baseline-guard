@@ -16,6 +16,7 @@ import {
   parseArgs,
   prettyUnsupportedLines,
   printTable,
+  renderRulesTable,
   selectRules,
   summarizeTargets,
   timestampSlug,
@@ -28,8 +29,6 @@ import {
 } from "./reports";
 import type { Finding, Report, UnsupportedItem } from "./types";
 
-
-
 (async function main() {
   const started = Date.now();
   const cwd = process.cwd();
@@ -41,6 +40,17 @@ import type { Finding, Report, UnsupportedItem } from "./types";
   const tags = args.list("--tags");
   const pack = args.get("--pack");
   const listRules = args.has("--list-rules");
+
+  // show-rules flag (all | checked) — default to "checked"
+  const showRulesRaw = (args.get("--show-rules") || "").toLowerCase();
+  const showRulesMode =
+    showRulesRaw === "all"
+      ? "all"
+      : showRulesRaw === "checked"
+      ? "checked"
+      : args.has("--show-rules")
+      ? "all"
+      : "checked";
 
   const emitOne = args.get("--emit-rule");
   const emitAll = args.has("--emit-all-rules");
@@ -103,7 +113,6 @@ import type { Finding, Report, UnsupportedItem } from "./types";
       );
       process.exit(0);
     }
-
   }
 
   /* -----------------------------
@@ -122,42 +131,32 @@ import type { Finding, Report, UnsupportedItem } from "./types";
   );
 
   /* -----------------------------
-     Rules: list or select
+     Rules selection
   ------------------------------*/
-  if (listRules) {
-    const list = selectRules(ALL_RULES, { pack, tags, only, exclude });
-    console.log("Available rules:");
-    for (const r of list) {
-      console.log(
-        `- ${r.id} [${(r.tags as string[]).join(", ")}] → ${r.featureId}${
-          r.docs ? " (" + r.docs + ")" : ""
-        }`
-      );
-    }
-    process.exit(0);
-  }
-
+  const selected = selectRules(ALL_RULES, { pack, tags, only, exclude });
   const enabledRules = selectRules(ALL_RULES, { pack, tags, only, exclude });
   const enabledIds = new Set(enabledRules.map((r) => r.id));
   const packLabel = pack && PACKS[pack] ? pack : "all";
+  const baseForDisplay = showRulesMode === "checked" ? enabledRules : selected;
 
-  const ruleRows = ALL_RULES.map((r) => [
-    r.id,
-    enabledIds.has(r.id) ? "Yes" : "No",
-    /* type */ (r.tags?.[0] ?? "other").toUpperCase(),
-  ]).sort((a, b) =>
-    a[2] === b[2]
-      ? String(a[0]).localeCompare(String(b[0]))
-      : String(a[2]).localeCompare(String(b[2]))
-  );
-  printTable(
-    `Rules (pack: ${packLabel})`,
-    ["Rule", "Checked", "Rule Type"],
-    ruleRows
-  );
+  // LIST MODE: show the table *before* scanning (minima-based red only)
+  if (listRules) {
+    renderRulesTable(
+      `Rules (pack: ${packLabel}${
+        showRulesMode === "checked" ? ", filtered: checked" : ""
+      })`,
+      baseForDisplay,
+      enabledIds,
+      packLabel,
+      targets.resolved,
+      featuresIdx,
+      { evalSafety: isFeatureSafeForTargets } // use minima in list mode
+    );
+    process.exit(0);
+  }
 
   /* -----------------------------
-     Scan files
+     Scan files (collect findings)
   ------------------------------*/
   const globs = [
     "**/*.{js,jsx,ts,tsx,css,html}",
@@ -204,6 +203,25 @@ import type { Finding, Report, UnsupportedItem } from "./types";
       }
     }
   }
+
+  /* -----------------------------
+     NOW print rules table with actual error highlights
+  ------------------------------*/
+  const highlightFeatureIds = new Set(problems.map((p) => p.featureId));
+  renderRulesTable(
+    `Rules (pack: ${packLabel}${
+      showRulesMode === "checked" ? ", filtered: checked" : ""
+    })`,
+    baseForDisplay,
+    enabledIds,
+    packLabel,
+    targets.resolved,
+    featuresIdx,
+    {
+      highlightFeatureIds,          // red only if real findings existed
+      evalSafety: isFeatureSafeForTargets, // harmless here; used only if highlight set missing
+    }
+  );
 
   /* -----------------------------
      Output summary
