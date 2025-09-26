@@ -1,5 +1,5 @@
 {
-  "name": "@codewithshinde/baseline-guard",
+  "name": "baseline-guard",
   "version": "0.1.5",
   "description": "CLI to enforce Web Baseline compatibility in dev and CI.",
   "keywords": [
