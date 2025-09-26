@@ -3,24 +3,44 @@ import { RULES } from "../constants";
 import { labelMap } from "../constants";
 import { groupTargets } from "../utils";
 
+const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function renderUnsupportedHTML(p: any): string {
+  const unsupported = p?.unsupported as
+    | { browser: string; target: string; min?: string }[]
+    | undefined;
+
+  if (unsupported?.length) {
+    return unsupported
+      .map(
+        (u) =>
+          `${esc(u.browser)} ${esc(u.target)}${
+            u.min ? ` (&lt; ${esc(u.min)})` : ""
+          }`
+      )
+      .join(", ");
+  }
+  return esc(p?.reason ?? "—");
+}
+
 export const getReportTemplate = (data: Report) => {
-  const escape = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const targetsByBrowser = groupTargets(data.targets);
 
-  // Tables: Issues
+  // Issues table (adds "Unsupported" column)
   const issueRows =
     data.problems.length === 0
-      ? `<tr><td colspan="5" class="muted">No issues found</td></tr>`
+      ? `<tr><td colspan="6" class="muted">No issues found</td></tr>`
       : data.problems
           .map(
             (p) =>
               `<tr>
-                <td><code>${escape(p.file)}</code></td>
+                <td><code>${esc(p.file)}</code></td>
                 <td class="num">${p.line}:${p.col}</td>
-                <td><code>${p.ruleId}</code> → <code>${p.featureId}</code></td>
-                <td>${escape(p.msg)}</td>
-                <td class="muted">${escape(p.reason)}</td>
+                <td><code>${p.ruleId}</code></td>
+                <td><code>${p.featureId}</code></td>
+                <td>${esc(p.msg)}</td>
+                <td class="muted">${renderUnsupportedHTML(p)}</td>
               </tr>`
           )
           .join("");
@@ -29,14 +49,12 @@ export const getReportTemplate = (data: Report) => {
   const summaryItems =
     Object.entries(data.ruleCounts)
       .sort((a, b) => b[1] - a[1])
-      .map(([r, c]) => `<li><code>${r}</code>: <strong>${c}</strong></li>`)
+      .map(([r, c]) => `<li><code>${esc(r)}</code>: <strong>${c}</strong></li>`)
       .join("") || "<li class='muted'>No violations</li>";
 
   // Files checked
   const files = data.filesChecked.length
-    ? data.filesChecked
-        .map((f) => `<li><code>${escape(f)}</code></li>`)
-        .join("")
+    ? data.filesChecked.map((f) => `<li><code>${esc(f)}</code></li>`).join("")
     : `<li class="muted">None</li>`;
 
   // Browser Targets (not clubbed)
@@ -46,37 +64,35 @@ export const getReportTemplate = (data: Report) => {
       .map((key) => {
         const label = labelMap[key] ?? key;
         const versions = targetsByBrowser[key].join(", ");
-        return `<tr><td>${label}</td><td><code>${escape(
-          versions
-        )}</code></td></tr>`;
+        return `<tr><td>${esc(label)}</td><td><code>${esc(versions)}</code></td></tr>`;
       })
       .join("") || `<tr><td colspan="2" class="muted">No targets</td></tr>`;
 
   // Web Features Coverage
-  // Prefer the set coming from CLI; fallback to "assume all covered" if missing.
   const packName = (data as any).packName ?? "all";
   const enabledSet: Set<string> = (data as any).enabledRuleIds
     ? new Set<string>((data as any).enabledRuleIds)
     : new Set<string>(RULES.map((r) => r.id));
 
-  const coverageRows = RULES.map((r) => {
-    const covered = enabledSet.has(r.id);
-    const type = r.tags.includes("css")
-      ? "CSS"
-      : r.tags.includes("html")
-      ? "HTML"
-      : r.tags.includes("js")
-      ? "JS"
-      : r.tags[0]?.toUpperCase() ?? "OTHER";
-    return `<tr>
-      <td><code>${r.featureId}</code></td>
-      <td><code>${r.id}</code></td>
-      <td><span class="pill ${covered ? "ok" : "warn"}">${
-      covered ? "Yes" : "No"
-    }</span></td>
-      <td>${type}</td>
-    </tr>`;
-  }).join("");
+  const coverageRows =
+    RULES.map((r) => {
+      const covered = enabledSet.has(r.id);
+      const type = r.tags.includes("css")
+        ? "CSS"
+        : r.tags.includes("html")
+        ? "HTML"
+        : r.tags.includes("js")
+        ? "JS"
+        : r.tags[0]?.toUpperCase() ?? "OTHER";
+      return `<tr>
+        <td><code>${esc(r.featureId)}</code></td>
+        <td><code>${esc(r.id)}</code></td>
+        <td><span class="pill ${covered ? "ok" : "warn"}">${
+        covered ? "Yes" : "No"
+      }</span></td>
+        <td>${esc(type)}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="4" class="muted">No rules found.</td></tr>`;
 
   return `<!doctype html>
 <html>
@@ -132,6 +148,7 @@ export const getReportTemplate = (data: Report) => {
   .pill.bad{ background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.35); color:#ff9b9b; }
   .kpis{ display:flex; gap:10px; flex-wrap:wrap; }
   .kpis .pill{ background:#0e1630; }
+  .num{ text-align:right; }
 </style>
 </head>
 <body>
@@ -144,10 +161,27 @@ export const getReportTemplate = (data: Report) => {
           <span class="pill">Files: ${data.fileCount}</span>
           <span class="pill">Duration: ${data.durationMs}ms</span>
           <span class="pill">Mode: ${data.mode}</span>
-          <span class="pill">Source: ${escape(data.targetSource)}</span>
+          <span class="pill">Source: ${esc(data.targetSource)}</span>
         </div>
       </div>
     </header>
+
+    <section class="card">
+      <h2>Issues</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Line:Col</th>
+            <th>Rule</th>
+            <th>Feature</th>
+            <th>Message</th>
+            <th>Unsupported (browser target &lt; min)</th>
+          </tr>
+        </thead>
+        <tbody>${issueRows}</tbody>
+      </table>
+    </section>
 
     <section class="grid grid-2">
       <div class="card">
@@ -155,7 +189,18 @@ export const getReportTemplate = (data: Report) => {
         <table>
           <thead><tr><th>Browser</th><th>Versions</th></tr></thead>
           <tbody>
-            ${browserTargetsRows}
+            ${
+              Object.keys(targetsByBrowser).length
+                ? Object.keys(targetsByBrowser)
+                    .sort((a, b) => (a < b ? -1 : 1))
+                    .map((key) => {
+                      const label = labelMap[key] ?? key;
+                      const versions = targetsByBrowser[key].join(", ");
+                      return `<tr><td>${esc(label)}</td><td><code>${esc(versions)}</code></td></tr>`;
+                    })
+                    .join("")
+                : `<tr><td colspan="2" class="muted">No targets</td></tr>`
+            }
           </tbody>
         </table>
       </div>
@@ -168,30 +213,17 @@ export const getReportTemplate = (data: Report) => {
       </div>
     </section>
 
+ 
+
     <section class="card">
-      <h2>Web Features Coverage <span class="pill">pack: ${escape(
-        String(packName)
-      )}</span></h2>
+      <h2>Web Features Coverage <span class="pill">pack: ${esc(String(packName))}</span></h2>
       <table>
         <thead>
           <tr><th>Web Feature</th><th>Rule</th><th>Covered</th><th>Type</th></tr>
         </thead>
         <tbody>
-          ${
-            coverageRows ||
-            `<tr><td colspan="4" class="muted">No rules found.</td></tr>`
-          }
+          ${coverageRows}
         </tbody>
-      </table>
-    </section>
-
-    <section class="card">
-      <h2>Issues</h2>
-      <table>
-        <thead>
-          <tr><th>File</th><th style="text-align:right">Line:Col</th><th>Rule → Feature</th><th>Message</th><th>Reason</th></tr>
-        </thead>
-        <tbody>${issueRows}</tbody>
       </table>
     </section>
 

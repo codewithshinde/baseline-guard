@@ -1,3 +1,5 @@
+import { BLKey } from "./constants";
+
 export type Rule = {
   id: string;
   featureId: string;
@@ -5,7 +7,15 @@ export type Rule = {
   regex: RegExp;
   message: string;
   tags:
-    | ("popular" | "bug-prone" | "experimental" | "css" | "js" | "html" | "risky")[]
+    | (
+        | "popular"
+        | "bug-prone"
+        | "experimental"
+        | "css"
+        | "js"
+        | "html"
+        | "risky"
+      )[]
     | string[];
   docs?: string;
 };
@@ -15,7 +25,7 @@ export type WireRule = {
   featureId: string;
   files: ("js" | "ts" | "tsx" | "css" | "html")[];
   pattern: string; // regex body as JSON string (escaped)
-  flags?: string;  // e.g. "gim"
+  flags?: string; // e.g. "gim"
   message: string;
   tags: string[];
   docs?: string;
@@ -48,6 +58,7 @@ export type Finding = {
   featureId: string;
   msg: string;
   reason: string;
+  unsupported?: UnsupportedItem[];
 };
 
 export type Report = {
@@ -102,3 +113,9 @@ export type BrowserKey =
   | "safari"
   | "ios_saf"
   | string;
+
+export type UnsupportedItem = {
+  browser: BLKey; // e.g., "safari"
+  target: string; // e.g., "16.1"
+  min?: string; // e.g., "16.4"
+};

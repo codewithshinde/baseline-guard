@@ -3,6 +3,23 @@ import { escapePipes, groupTargets } from "../utils";
 import { RULES } from "../constants/rules";
 import { labelMap } from "../constants";
 
+function renderUnsupported(p: any): string {
+  const unsupported = p?.unsupported as
+    | { browser: string; target: string; min?: string }[]
+    | undefined;
+
+  if (unsupported?.length) {
+    return unsupported
+      .map(
+        (u) =>
+          `${u.browser} ${u.target}${u.min ? ` (< ${u.min})` : ""}`
+      )
+      .join(", ");
+  }
+
+  return p?.reason ?? "—";
+}
+
 export function renderMarkdownReport(data: Report): string {
   const targetsBy: Record<string, string[]> = groupTargets(data.targets);
 
@@ -42,29 +59,30 @@ export function renderMarkdownReport(data: Report): string {
     : new Set<string>(RULES.map((r) => r.id));
   const packName = (data as any).packName ?? "all";
 
-  const coverageTable = [
-    `| Web Feature | Rule | Covered |`,
-    `|-------------|------|---------|`,
-    ...RULES.map(
-      (r) =>
-        `| \`${r.featureId}\` | \`${r.id}\` | ${
-          enabledSet.has(r.id) ? "Yes" : "No"
-        } |`
-    ),
-  ].join("\n");
+  const coverageTable =
+    [
+      `| Web Feature | Rule | Covered |`,
+      `|-------------|------|---------|`,
+      ...RULES.map(
+        (r) =>
+          `| \`${r.featureId}\` | \`${r.id}\` | ${
+            enabledSet.has(r.id) ? "Yes" : "No"
+          } |`
+      ),
+    ].join("\n") || "_No rules_";
 
-  // Issues table
+  // Issues table (now includes Unsupported column)
   const problems =
     data.problems.length === 0
       ? "_No issues found_"
       : [
-          "| File | Line:Col | Rule → Feature | Message | Reason |",
-          "|------|---------:|----------------|---------|--------|",
+          "| File | Line:Col | Rule → Feature | Message | Unsupported (browser target < min) |",
+          "|------|---------:|----------------|---------|------------------------------------|",
           ...data.problems.map(
             (p) =>
-              `| \`${p.file}\` | ${p.line}:${p.col} | \`${p.ruleId}\` → \`${
-                p.featureId
-              }\` | ${escapePipes(p.msg)} | ${escapePipes(p.reason)} |`
+              `| \`${p.file}\` | ${p.line}:${p.col} | \`${p.ruleId}\` → \`${p.featureId}\` | ${escapePipes(
+                p.msg
+              )} | ${escapePipes(renderUnsupported(p))} |`
           ),
         ].join("\n");
 
