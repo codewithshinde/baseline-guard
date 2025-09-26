@@ -1,5 +1,5 @@
 {
-  "name": "baseline-guard",
+  "name": "@codewithshinde/baseline-guard",
   "version": "0.1.4",
   "description": "CLI to enforce Web Baseline compatibility in dev and CI.",
   "keywords": [
@@ -54,6 +54,7 @@
     "typescript": "^5.4.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com/"
   }
 }
