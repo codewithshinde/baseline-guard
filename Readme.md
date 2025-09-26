@@ -15,8 +15,8 @@ Uses the official [`web-features`](https://www.npmjs.com/package/web-features) d
 
 ## 1) Why use it?
 
-Device power ≠ browser support. A feature like `:has()` or RegExp lookbehind can work on your laptop but fail on Safari/iOS your users run.
-Baseline Guard answers: **“Is this feature safe for the browsers we support?”**
+Device power ≠ browser support. A feature like `:has()` or RegExp **lookbehind** can work on your machine but fail on Safari/iOS your users run.
+**Baseline Guard** answers: **“Is this feature safe for the browsers we support?”**
 
 ---
 
@@ -36,7 +36,7 @@ pnpm add -D baseline-guard
 
 ## 3) Quick start
 
-1. Create `baseline.config.json` in your project root:
+1. Create **`baseline.config.json`** at your project root:
 
 ```json
 {
@@ -78,7 +78,8 @@ You’ll get a summary of targets, what rules ran, files scanned, and any issues
 
   * **Baseline** status (from `web-features`), and/or
   * **Minimum browser versions** vs your **targets**.
-* Prints the result to the console. Can also save a **Markdown**, **HTML**, or **JSON** report.
+* Prints results to the console and can save a **Markdown**, **HTML**, or **JSON** report.
+* Reports now include **exact browsers/versions that fail** (e.g., `Safari 16.3 (< 17.0)`).
 
 ---
 
@@ -86,7 +87,6 @@ You’ll get a summary of targets, what rules ran, files scanned, and any issues
 
 ```
 baseline-guard [--watch] [--format=pretty|json]
-               [--list-checked]
                [--list-rules]
                [--pack=core|popular|risky|experimental|all]
                [--tags=css,js,html,popular,bug-prone,experimental]
@@ -94,23 +94,26 @@ baseline-guard [--watch] [--format=pretty|json]
                [--report=md|html|json] [--out=path] [--save]
 ```
 
+> **Defaults**
+> • Output: `--format=pretty`
+> • Pack: `--pack=all` (when not provided)
+
 **Common examples**
 
 ```bash
-# See every available rule
-baseline-guard --list-rules
+# Show available rules (now filterable!)
+baseline-guard --list-rules --tags=css
+baseline-guard --list-rules --pack=popular
+baseline-guard --list-rules --only=css-has,js-regexp-lookbehind
 
-# Run core CSS checks
+# Core CSS checks
 baseline-guard --pack=core --tags=css
 
-# Only check :has() and container queries
+# Only :has() and container queries
 baseline-guard --only=css-has,css-container-queries
 
 # Everything except WebGPU
 baseline-guard --pack=all --exclude=webgpu
-
-# Show the files scanned
-baseline-guard --list-checked
 
 # Save a Markdown report to the default folder (.baseline/)
 baseline-guard --report=md --save
@@ -121,22 +124,13 @@ baseline-guard --report=html --out .baseline/report.html
 
 **Flags (what they mean)**
 
-* `--watch`
-  Re-run on file changes. Good for local dev.
-* `--format=pretty|json`
-  Pretty console logs (default) or JSON (for CI/automation).
-* `--list-checked`
-  Print every file scanned.
-* `--list-rules`
-  Print all rule IDs, tags, and mapped web features.
-* `--pack`
-  Rule presets: `core`, `popular`, `risky`, `experimental`, `all` (default is `all`).
-* `--tags`
-  Filter by tags like `css,js,html,popular,bug-prone,experimental`.
-* `--only` / `--exclude`
-  Fine-grain rule selection by ID.
-* `--report=md|html|json` + `--out` + `--save`
-  Create and save a report. Without `--out`, files go to `.baseline/` with a timestamp.
+* `--watch` — Re-run on file changes (good for local dev).
+* `--format=pretty|json` — Pretty console logs (default) or JSON (for CI/automation).
+* `--list-rules` — Print rules, and **respects** filters like `--tags`, `--pack`, and `--only`.
+* `--pack` — Rule presets: `core`, `popular`, `risky`, `experimental`, `all` (default is `all`).
+* `--tags` — Filter by tags (e.g., `css,js,html,popular,bug-prone,experimental`).
+* `--only` / `--exclude` — Fine-grain rule selection by ID.
+* `--report=md|html|json` + `--out` + `--save` — Create and save a report. Without `--out`, files go to `.baseline/` with a timestamp.
 
 **Exit codes (for CI)**
 
@@ -156,10 +150,10 @@ baseline-guard --report=html --out .baseline/report.html
 
 ## 7) Adding your own rules (inline, no extra files)
 
-You can add rules directly inside **`baseline.config.json`** under a `rules` array.
-Because JSON can’t store real `RegExp` objects, each rule provides a **`pattern`** string and optional **`flags`**. The CLI compiles those into a regex.
+Add rules directly inside **`baseline.config.json`** under a `rules` array.
+Because JSON can’t store actual regex objects, provide a **`pattern`** string and optional **`flags`** (the CLI compiles them to a `RegExp`).
 
-**Example: add 2 rules inline**
+**Example: add 2 inline rules**
 
 ```json
 {
@@ -189,51 +183,82 @@ Because JSON can’t store real `RegExp` objects, each rule provides a **`patter
 }
 ```
 
-**How to write `pattern`**
+**Notes:**
 
-* It’s a normal JS regex **as a JSON string**. Escape backslashes (`\\`) and any pipes (`\|`) if you include them.
-* Add `"flags": "g"` so the scanner can find multiple matches in one file.
 * `id` must be unique. If it matches a built-in rule ID, **your inline rule overrides** the built-in.
-* `featureId` should be a valid **web-features** ID (e.g. `css-selector-has`, `webgpu`, `js-regexp-lookbehind`). That’s how Baseline/minimum versions are checked.
+* `featureId` must be a valid **web-features** ID (e.g., `css-selector-has`, `webgpu`, `js-regexp-lookbehind`).
+  Baseline Guard uses that ID to check Baseline/minimum browser versions.
+* Use `"flags": "g"` so a rule can match multiple times per file.
+* Escape backslashes in JSON: `\\`.
 
-**Rule shape (for reference)**
+---
 
-```ts
+## 8) Output & reports (includes “which browser failed”)
+
+**Console (pretty mode)** shows a target summary table, enabled rules, and issues.
+**Markdown/HTML** reports include:
+
+* **Browser Targets** (non-clubbed): every browser + the exact versions in your targets.
+* **Web Features Coverage**: which `web-features` are covered by the active rules.
+* **Issues**: includes **Unsupported (browser target < min)**, e.g.:
+
+  ```
+  Safari 16.3 (< 17.0), iOS Safari 16.3 (< 17.0)
+  ```
+
+**JSON** report adds structured data per finding:
+
+```json
 {
-  id: string;
-  featureId: string;                 // web-features ID
-  files: ("js"|"ts"|"tsx"|"css"|"html")[];
-  pattern: string;                   // regex body as JSON string
-  flags?: string;                    // e.g. "gim"
-  message: string;
-  tags: string[];                    // e.g. ["css","popular"]
-  docs?: string;
+  "file": "src/components/PriceDisplay.tsx",
+  "line": 12,
+  "col": 10,
+  "ruleId": "js-regexp-lookbehind",
+  "featureId": "js-regexp-lookbehind",
+  "msg": "RegExp lookbehind may not be supported by your targets.",
+  "unsupported": [
+    { "browser": "safari", "target": "16.3", "min": "17.0" },
+    { "browser": "ios_saf", "target": "16.3", "min": "17.0" }
+  ]
 }
+```
+
+Create reports:
+
+```bash
+# Save Markdown to .baseline/baseline-report-<timestamp>.md
+baseline-guard --report=md --save
+
+# Save HTML to custom location
+baseline-guard --report=html --out .baseline/report.html
+
+# Machine-readable JSON
+baseline-guard --format=json > baseline-report.json
 ```
 
 ---
 
-## 8) Where to use it
+## 9) Where to use it
 
-* **Local dev**: run `baseline:watch` next to your Vite/Next dev server.
-* **Pre-commit**: block commits if you add features outside your support window.
+* **Local dev**: `baseline:watch` alongside your Vite/Next dev server.
+* **Pre-commit**: block commits that introduce unsupported features.
 
   ```bash
   npx husky init
   echo 'npm run baseline:check' > .husky/pre-commit
   ```
-* **CI**: fail the job when `mode` is `"error"` and violations exist.
+* **CI**: fail when violations exist and `mode` is `"error"`.
 
   ```yaml
   - name: Baseline check
     run: baseline-guard --format=json --report=md --save
   ```
-* **PR reviews**: attach the Markdown/HTML report as an artifact.
-* **Monorepos**: each app has its own `baseline.config.json` or shared Browserslist.
+* **PR reviews**: upload the Markdown/HTML report as an artifact.
+* **Monorepos**: each app can keep its own `baseline.config.json` (or share Browserslist).
 
 ---
 
-## 9) Sample output (pretty mode)
+## 10) Sample output (pretty mode)
 
 ```
 Baseline Guard (source: baseline.config.json)
@@ -244,8 +269,8 @@ Targets (summary)
 │ Chrome     │ 114–140            │ 27    │
 │ Edge       │ 114–140            │ 27    │
 │ Firefox    │ 115–142            │ 28    │
-│ Safari     │ 17–26              │ 14    │
-│ iOS Safari │ 17–26              │ 14    │
+│ Safari     │ 16–16.3            │ 4     │
+│ iOS Safari │ 16–16.3            │ 4     │
 └────────────┴────────────────────┴───────┘
 Rules (pack: all)
 ┌───────────────────────────┬─────────┬───────────┐
@@ -256,28 +281,23 @@ Rules (pack: all)
 │ webgpu                    │ Yes     │ JS        │
 … (more)
 Scanned 128 file(s)
-⚠ Found 2 issue(s) across 2 rule(s).
-Top rules:
- - css-has: 1
- - document-pip: 1
-src/styles/app.css:12:4 CSS :has() selector may not be in your baseline. [css-has → css-selector-has]
-  ↳ Not supported by: safari 16.3
-src/video/pip.ts:45:10 Document Picture-in-Picture may not be safe. [document-pip → document-picture-in-picture]
-  ↳ Not Baseline and no support data available.
+⚠ Found 1 issue(s)
+src/components/PriceDisplay.tsx:12:10 RegExp lookbehind may not be supported by your targets. [js-regexp-lookbehind → js-regexp-lookbehind]
+  ↳ Unsupported: safari 16.3 (< 17.0), ios_saf 16.3 (< 17.0)
 ```
 
 ---
 
-## 10) Tips & troubleshooting
+## Tips & troubleshooting
 
-* **No issues but you expect one?**
-  Check your `targets` include the affected versions (e.g., `safari 16.0-16.3` if you’re testing RegExp lookbehind problems).
+* **Expecting an issue but not seeing it?**
+  Ensure your `targets` include the affected versions (e.g., `safari 16.0-16.3` to test lookbehind problems).
 * **“Unknown feature”**
-  Update `web-features` or verify the `featureId`.
+  Update `web-features` or verify the `featureId` in your rule.
 * **Performance**
   The scanner ignores `node_modules`, `dist`, `build` by default.
 * **False positives**
-  Rules use regex heuristics. Tweak or override with your own inline rules.
+  Rules use regex heuristics. Override or refine with your own inline rules.
 
 ---
 
